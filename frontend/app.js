@@ -523,44 +523,37 @@ async function viewEditBooking(id) {
   viewForm(data);
 }
 
-// Opens a print-friendly A4 window and triggers the browser print dialog.
-function printBooking(b) {
-  const series = esc(b.series_no) || String(b.id).padStart(3, '0');
-  const kv = (rows) =>
-    rows
-      .map(
-        (r) =>
-          `<tr><td class="k">${esc(r[0])}</td><td>${esc(b[r[1]]) || '—'}</td>` +
-          (r[2]
-            ? `<td class="k">${esc(r[2])}</td><td>${esc(b[r[3]]) || '—'}</td></tr>`
-            : `<td></td><td></td></tr>`)
-      )
-      .join('');
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>Booking #${b.id} — Centre Point Amravti</title>
-    <style>
-      @page { size: A4; margin: 14mm; }
-      body { font-family: Arial, sans-serif; color:#111; font-size:12px; }
-      .head { display:flex; justify-content:space-between; border-bottom:2px solid #111; padding-bottom:8px; margin-bottom:12px; }
-      .head h1 { margin:0; font-size:18px; } .meta { text-align:right; font-size:11px; color:#555; }
-      h2 { font-size:12px; text-transform:uppercase; background:#f0f0f0; padding:4px 8px; margin:14px 0 6px; border-left:3px solid #111; }
-      table { width:100%; border-collapse:collapse; } td { padding:3px 8px; border-bottom:1px solid #eee; vertical-align:top; }
-      td.k { width:22%; color:#555; font-weight:bold; }
-    </style></head><body>
-    <div class="head">
-      <div><h1>Centre Point Amravti</h1><div>Function Booking Form</div></div>
-      <div class="meta">Booking No ${series}<br>${b.reservation_no ? 'Res. No: ' + esc(b.reservation_no) + '<br>' : ''}Submitted by: ${esc(b.submitted_by)}<br>Timestamp: ${esc(new Date(b.created_at).toLocaleString())}</div>
-    </div>
-    <h2>Function Prospectus</h2><table>${kv([['Date','date','Type of Function','function_type'],['Venue','venue','MG','mg'],['Expected Pax','expected_pax','Time Slot','time_slot'],['Menu','menu']])}</table>
-    <h2>Party Details</h2><table>${kv([['Name of Party','party_name','Company','company_name'],['GST No','gst_no','PAN No','pan_no'],['Address','address'],['Contact Person','contact_person','Telephone','telephone'],['Email','email','Seating','seating_arrangement'],['Add on Rooms','add_on_rooms']])}</table>
-    <h2>Billing</h2><table>${kv([['Rate','rate','Hall Rent','hall_rent'],['Mode of Payment','mode_of_payment','Advance Amt','advance_amt'],['Transaction Details','transaction_details']])}</table>
-    <h2>Additional Services</h2><table>${kv([['Board to Read','board_to_read'],['Other Charges','other_charges'],['Details / Amount','details_amount']])}</table>
-    <h2>Instructions</h2><table>${kv([['Billing','billing_instruction'],['Housekeeping','housekeeping'],['F&B','fnb'],['Kitchen','kitchen']])}</table>
-    <script>window.onload=function(){window.print();}<\/script>
-    </body></html>`;
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
+// Downloads the booking's single-page A4 PDF from the backend (same layout that
+// is emailed). Uses a credentialed blob fetch + temporary link so it works even
+// when pop-ups are blocked, instead of the old window.open()/window.print().
+async function printBooking(b) {
+  const btn = document.getElementById('pdfBtn');
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
+  try {
+    const res = await fetch(API_BASE + '/api/bookings/' + b.id + '/pdf', {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const series = esc(b.series_no) || String(b.id).padStart(3, '0');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Booking-${series}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('Could not download PDF: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
 }
 
 // --- Router -----------------------------------------------------------------

@@ -29,6 +29,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const { sendBookingEmail } = require('./mailer');
+const { renderBookingPdf } = require('./pdf');
 
 const PORT = process.env.PORT || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
@@ -344,6 +345,28 @@ app.put(
     await booking.save();
 
     res.json({ id: booking.seq, series_no: booking.series_no });
+  })
+);
+
+// Download the booking as a single-page A4 PDF (same layout that is emailed).
+app.get(
+  '/api/bookings/:id/pdf',
+  authRequired,
+  wrap(async (req, res) => {
+    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const b = booking.toJSON();
+    const pdf = await renderBookingPdf(b);
+    const series = b.series_no || String(b.seq).padStart(3, '0');
+    const fileName = `Booking-${series}-${(b.party_name || 'party')
+      .replace(/[^\w\-]+/g, '_')
+      .slice(0, 40)}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdf.length);
+    res.send(pdf);
   })
 );
 
