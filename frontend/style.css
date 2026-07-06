@@ -99,6 +99,34 @@ body {
 .card.center { text-align: center; }
 .auth-card { max-width: 400px; margin-left: auto; margin-right: auto; }
 
+/* Password field with a Show/Hide toggle */
+.password-wrap { position: relative; }
+.password-wrap input { padding-right: 4rem; }
+.pw-toggle {
+    position: absolute;
+    top: 50%;
+    right: 0.5rem;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.25rem 0.4rem;
+}
+.pw-toggle:hover { text-decoration: underline; }
+.remember {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0 0 1.1rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+    font-weight: 500;
+}
+.remember input { width: auto; }
+
 h1 { margin: 0 0 0.25rem; font-size: 1.6rem; }
 .subtitle { color: var(--muted); margin-top: 0; }
 

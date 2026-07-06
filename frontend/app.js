@@ -74,6 +74,9 @@ function renderNav() {
 // --- Views ------------------------------------------------------------------
 
 function viewLogin(msg) {
+  // Restore remembered credentials if the user opted in previously.
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('fp_login') || '{}'); } catch (e) { /* ignore */ }
   $app.innerHTML = `
     <div class="card auth-card">
       <h1>Admin Login</h1>
@@ -82,20 +85,45 @@ function viewLogin(msg) {
       <form id="loginForm" novalidate>
         <div class="field">
           <label for="username">Username</label>
-          <input type="text" id="username" name="username" autofocus>
+          <input type="text" id="username" name="username" value="${esc(saved.username || '')}" autofocus>
         </div>
         <div class="field">
           <label for="password">Password</label>
-          <input type="password" id="password" name="password">
+          <div class="password-wrap">
+            <input type="password" id="password" name="password" value="${esc(saved.password || '')}">
+            <button type="button" id="togglePw" class="pw-toggle" aria-label="Show password">Show</button>
+          </div>
         </div>
+        <label class="inline remember">
+          <input type="checkbox" id="remember"${saved.username ? ' checked' : ''}> Remember my ID &amp; password
+        </label>
         <button type="submit" class="btn btn-block">Log in</button>
       </form>
     </div>`;
   if (msg) showErr(msg);
+
+  // Show/hide password toggle.
+  const pw = document.getElementById('password');
+  const toggle = document.getElementById('togglePw');
+  toggle.onclick = () => {
+    const reveal = pw.type === 'password';
+    pw.type = reveal ? 'text' : 'password';
+    toggle.textContent = reveal ? 'Hide' : 'Show';
+    toggle.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  };
+
   document.getElementById('loginForm').onsubmit = async (e) => {
     e.preventDefault();
     const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
+    const password = pw.value;
+    // Save or clear remembered credentials based on the checkbox.
+    try {
+      if (document.getElementById('remember').checked) {
+        localStorage.setItem('fp_login', JSON.stringify({ username, password }));
+      } else {
+        localStorage.removeItem('fp_login');
+      }
+    } catch (e) { /* ignore storage errors */ }
     const { ok, data } = await api('/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
