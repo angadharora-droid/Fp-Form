@@ -305,6 +305,14 @@ function viewForm() {
 
 async function viewBookings() {
   document.body.classList.add('wide');
+  // Render a loading placeholder immediately so the previous view (e.g. the
+  // New Booking form) doesn't linger on screen while the API request is in
+  // flight — noticeable when the backend is waking from a cold start.
+  $app.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h1>Bookings</h1></div>
+      <p class="subtitle">Loading bookings…</p>
+    </div>`;
   const { ok, data } = await api('/bookings');
   if (!ok) return (location.hash = '#/login');
   const rows = data
@@ -375,6 +383,7 @@ const DETAIL_SECTIONS = [
 ];
 
 async function viewBooking(id, created) {
+  $app.innerHTML = `<div class="card"><p class="subtitle">Loading booking…</p></div>`;
   const { ok, data } = await api('/bookings/' + id);
   if (!ok) return (location.hash = '#/login');
   const b = data;
