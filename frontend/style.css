@@ -42,18 +42,50 @@ body {
     color: var(--primary);
     text-decoration: none;
 }
-.site-header nav a {
-    margin-left: 1.25rem;
+/* Page tabs (New Booking / Bookings) + right-side user area */
+.site-header nav {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+.tabs {
+    display: flex;
+    gap: 0.35rem;
+}
+.tab {
+    padding: 0.45rem 1rem;
+    border-radius: 8px;
     color: var(--muted);
     text-decoration: none;
     font-size: 0.95rem;
+    font-weight: 500;
+    transition: background 0.15s, color 0.15s;
 }
-.site-header nav a:hover { color: var(--text); }
+.tab:hover { background: var(--bg); color: var(--text); }
+.tab.active {
+    background: var(--primary);
+    color: #fff;
+    font-weight: 600;
+}
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
 .nav-user {
-    margin-left: 1.25rem;
     color: var(--text);
     font-size: 0.9rem;
     font-weight: 600;
+}
+.logout-link {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+.logout-link:hover { color: var(--error); }
+@media (max-width: 560px) {
+    .site-header .container { height: auto; padding-top: 0.6rem; padding-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem; }
+    .site-header nav { gap: 0.75rem; flex-wrap: wrap; }
 }
 
 .card {
@@ -219,6 +251,12 @@ label.inline input { width: auto; }
     border: 1px solid var(--border);
 }
 .btn-ghost:hover { background: var(--bg); }
+.btn-danger {
+    background: #fff;
+    color: var(--error);
+    border: 1px solid #fecaca;
+}
+.btn-danger:hover { background: var(--error); color: #fff; }
 
 .success-banner { padding: 1.5rem; }
 
@@ -252,6 +290,18 @@ th, td {
     vertical-align: top;
 }
 th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+/* Bookings list: compact, clickable rows, no truncation */
+.bookings-table { width: 100%; font-size: 0.88rem; }
+.bookings-table th, .bookings-table td { padding: 0.55rem 0.6rem; }
+.bookings-table .nowrap { white-space: nowrap; }
+tr.row-link { cursor: pointer; }
+tr.row-link:hover td { background: var(--bg); }
+.hint { color: var(--muted); font-size: 0.82rem; margin: 0.75rem 0 0; }
+
+/* The bookings list gets more width than the 860px form pages so all
+   columns (full date + phone) fit without horizontal scrolling. */
+body.wide main.container { max-width: 1180px; }
 
 .site-footer {
     color: var(--muted);

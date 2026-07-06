@@ -11,7 +11,7 @@ const PDFDocument = require('pdfkit');
 const SECTIONS = [
   ['Function Prospectus', [
     ['Series No', 'series_no'], ['Reservation No', 'reservation_no'],
-    ['Date', 'date'], ['Time', 'time'],
+    ['Date', 'date'],
     ['Type of Function', 'function_type'], ['Venue', 'venue'], ['MG', 'mg'],
     ['Expected Pax', 'expected_pax'], ['Time Slot', 'time_slot'], ['Menu', 'menu'],
   ]],

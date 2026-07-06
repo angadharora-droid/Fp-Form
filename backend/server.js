@@ -22,6 +22,7 @@ const session = require('express-session');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const { sendBookingEmail } = require('./mailer');
 
 const PORT = process.env.PORT || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
@@ -59,7 +60,7 @@ const FIELDS = [
 ];
 
 const REQUIRED = [
-  'date', 'time', 'function_type', 'venue', 'time_slot', 'menu',
+  'date', 'function_type', 'venue', 'time_slot', 'menu',
   'party_name', 'telephone', 'rate',
 ];
 
@@ -228,6 +229,18 @@ app.get(
   })
 );
 
+app.delete(
+  '/api/bookings/:id',
+  authRequired,
+  wrap(async (req, res) => {
+    const result = await Booking.deleteOne({ seq: Number(req.params.id) });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+    res.json({ ok: true });
+  })
+);
+
 app.post(
   '/api/bookings',
   authRequired,
@@ -251,6 +264,17 @@ app.post(
     if (data.email && (!data.email.includes('@') || !data.email.includes('.'))) {
       errors.email = 'Enter a valid email address.';
     }
+    // Reject bookings dated in the past (guards against a bypassed client).
+    if (data.date) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const picked = new Date(data.date + 'T00:00:00');
+      if (isNaN(picked.getTime())) {
+        errors.date = 'Enter a valid date.';
+      } else if (picked < today) {
+        errors.date = 'Date cannot be in the past.';
+      }
+    }
     if (Object.keys(errors).length > 0) {
       return res.status(400).json({ errors });
     }
@@ -264,6 +288,10 @@ app.post(
       series_no: seriesNo(seq),
       created_at: new Date(),
     });
+
+    // Email the booking PDF to the internal distribution list. Fire-and-forget:
+    // a mail failure must not fail the booking, which is already saved.
+    sendBookingEmail(booking.toJSON());
 
     res.status(201).json({ id: booking.seq, series_no: booking.series_no });
   })

@@ -42,12 +42,21 @@ function opts(list, selected) {
 // --- Nav --------------------------------------------------------------------
 
 function renderNav() {
+  // Which page (tab) is currently active, derived from the route.
+  const path = (location.hash.slice(1).split('?')[0]) || '/';
+  const isForm = path === '/' || path === '/form';
+  const isBookings = path === '/bookings' || /^\/booking\//.test(path);
+
   if (state.me.loggedIn) {
     $nav.innerHTML = `
-      <a href="#/form">New Booking</a>
-      <a href="#/bookings">Bookings</a>
-      <span class="nav-user">${esc(state.me.username)}</span>
-      <a href="#" id="logout">Logout</a>`;
+      <div class="tabs">
+        <a href="#/form" class="tab${isForm ? ' active' : ''}">New Booking</a>
+        <a href="#/bookings" class="tab${isBookings ? ' active' : ''}">Bookings</a>
+      </div>
+      <div class="nav-right">
+        <span class="nav-user">${esc(state.me.username)}</span>
+        <a href="#" id="logout" class="logout-link">Logout</a>
+      </div>`;
     document.getElementById('logout').onclick = async (e) => {
       e.preventDefault();
       await api('/logout', { method: 'POST' });
@@ -56,7 +65,7 @@ function renderNav() {
       location.hash = '#/login';
     };
   } else {
-    $nav.innerHTML = `<a href="#/login">Login</a>`;
+    $nav.innerHTML = `<div class="tabs"><a href="#/login" class="tab active">Login</a></div>`;
   }
 }
 
@@ -91,8 +100,10 @@ function viewLogin(msg) {
     });
     if (ok) {
       state.me = { loggedIn: true, username: data.username };
-      renderNav();
-      location.hash = '#/form';
+      // If the hash is already '#/form' (the login form is shown there),
+      // changing it fires no hashchange event, so render the form directly.
+      if (location.hash === '#/form') route();
+      else location.hash = '#/form';
     } else {
       showErr((data && data.error) || 'Login failed.');
     }
@@ -118,11 +129,18 @@ function stopClock() {
   if (window.__clock) { clearInterval(window.__clock); window.__clock = null; }
 }
 
-function field(label, name, type = 'text', required = false, value = '') {
+// Today's date as YYYY-MM-DD in the user's local time (for date input `min`).
+function todayStr() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function field(label, name, type = 'text', required = false, value = '', attrs = '') {
   return `
     <div class="field">
       <label>${label}${required ? ' <span class="req">*</span>' : ''}</label>
-      <input type="${type}" name="${name}" value="${esc(value)}">
+      <input type="${type}" name="${name}" value="${esc(value)}" ${attrs}>
     </div>`;
 }
 
@@ -164,8 +182,7 @@ function viewForm() {
 
         <h2 class="section-title">Function Prospectus</h2>
         <div class="grid">
-          ${field('Date', 'date', 'date', true)}
-          ${field('Time', 'time', 'time', true)}
+          ${field('Date', 'date', 'date', true, '', `min="${todayStr()}"`)}
           ${select('Type of Function', 'function_type', o.functionTypes, true)}
           ${select('Venue', 'venue', o.venues, true)}
           ${field('MG', 'mg')}
@@ -285,22 +302,21 @@ function viewForm() {
 }
 
 async function viewBookings() {
+  document.body.classList.add('wide');
   const { ok, data } = await api('/bookings');
   if (!ok) return (location.hash = '#/login');
   const rows = data
     .map(
       (b) => `
-      <tr>
+      <tr class="row-link" data-id="${b.id}">
         <td><strong>${esc(b.series_no) || String(b.id).padStart(3, '0')}</strong></td>
         <td>${esc(b.reservation_no) || '—'}</td>
-        <td>${esc(b.date)}</td>
-        <td>${esc(b.time)}</td>
+        <td class="nowrap">${esc(b.date)}</td>
         <td>${esc(b.function_type)}</td>
         <td>${esc(b.venue)}</td>
         <td>${esc(b.party_name)}</td>
-        <td>${esc(b.telephone)}</td>
+        <td class="nowrap">${esc(b.telephone)}</td>
         <td>${esc(b.submitted_by)}</td>
-        <td><a href="#/booking/${b.id}">View</a></td>
       </tr>`
     )
     .join('');
@@ -312,20 +328,26 @@ async function viewBookings() {
       </div>
       ${
         data.length
-          ? `<div class="table-wrap"><table>
-              <thead><tr><th>Series No</th><th>Res. No</th><th>Date</th><th>Time</th>
+          ? `<table class="bookings-table">
+              <thead><tr><th>Series No</th><th>Res. No</th><th>Date</th>
               <th>Type</th><th>Venue</th><th>Party</th><th>Telephone</th>
-              <th>By</th><th></th></tr></thead>
-              <tbody>${rows}</tbody></table></div>`
+              <th>By</th></tr></thead>
+              <tbody>${rows}</tbody></table>
+             <p class="hint">Tip: click any row to view or download the booking.</p>`
           : `<p class="subtitle">No bookings yet. <a href="#/form">Create the first one</a>.</p>`
       }
     </div>`;
+
+  // Whole row navigates to the booking detail — no separate "View" column.
+  $app.querySelectorAll('tr.row-link').forEach((tr) => {
+    tr.onclick = () => (location.hash = '#/booking/' + tr.dataset.id);
+  });
 }
 
 const DETAIL_SECTIONS = [
   ['Function Prospectus', [
     ['Series No', 'series_no'], ['Reservation No', 'reservation_no'],
-    ['Date', 'date'], ['Time', 'time'],
+    ['Date', 'date'],
     ['Type of Function', 'function_type'], ['Venue', 'venue'], ['MG', 'mg'],
     ['Expected Pax', 'expected_pax'], ['Time Slot', 'time_slot'], ['Menu', 'menu'],
   ]],
@@ -382,6 +404,7 @@ async function viewBooking(id, created) {
         <div class="card-actions">
           <button class="btn btn-sm" id="pdfBtn">Download PDF (A4)</button>
           <a class="btn btn-sm btn-ghost" href="#/form">New Booking</a>
+          <button class="btn btn-sm btn-danger" id="delBtn">Delete</button>
         </div>
       </div>
       <p class="subtitle">Submitted by <strong>${esc(b.submitted_by)}</strong> · ${esc(new Date(b.created_at).toLocaleString())}</p>
@@ -389,6 +412,12 @@ async function viewBooking(id, created) {
     </div>`;
 
   document.getElementById('pdfBtn').onclick = () => printBooking(b);
+  document.getElementById('delBtn').onclick = async () => {
+    if (!confirm(`Delete Booking No ${series}? This cannot be undone.`)) return;
+    const { ok } = await api('/bookings/' + b.id, { method: 'DELETE' });
+    if (ok) location.hash = '#/bookings';
+    else alert('Could not delete the booking.');
+  };
 }
 
 // Opens a print-friendly A4 window and triggers the browser print dialog.
@@ -419,7 +448,7 @@ function printBooking(b) {
       <div><h1>Centre Point Amravti</h1><div>Function Booking Form</div></div>
       <div class="meta">Booking No ${series}<br>${b.reservation_no ? 'Res. No: ' + esc(b.reservation_no) + '<br>' : ''}Submitted by: ${esc(b.submitted_by)}<br>Timestamp: ${esc(new Date(b.created_at).toLocaleString())}</div>
     </div>
-    <h2>Function Prospectus</h2><table>${kv([['Date','date','Time','time'],['Type of Function','function_type','Venue','venue'],['MG','mg','Expected Pax','expected_pax'],['Time Slot','time_slot','Menu','menu']])}</table>
+    <h2>Function Prospectus</h2><table>${kv([['Date','date','Type of Function','function_type'],['Venue','venue','MG','mg'],['Expected Pax','expected_pax','Time Slot','time_slot'],['Menu','menu']])}</table>
     <h2>Party Details</h2><table>${kv([['Name of Party','party_name','Company','company_name'],['GST No','gst_no','PAN No','pan_no'],['Address','address'],['Contact Person','contact_person','Telephone','telephone'],['Email','email','Seating','seating_arrangement'],['Add on Rooms','add_on_rooms']])}</table>
     <h2>Billing</h2><table>${kv([['Rate','rate','Hall Rent','hall_rent'],['Mode of Payment','mode_of_payment','Advance Amt','advance_amt'],['Transaction Details','transaction_details']])}</table>
     <h2>Additional Services</h2><table>${kv([['Board to Read','board_to_read'],['Other Charges','other_charges'],['Details / Amount','details_amount']])}</table>
@@ -437,6 +466,11 @@ async function route() {
   stopClock();
   const raw = location.hash.slice(1) || '/';
   const [path, query] = raw.split('?');
+
+  // Keep the tab highlight in sync with the current page.
+  renderNav();
+  // Only the bookings list uses the wider layout.
+  document.body.classList.remove('wide');
 
   if (!state.me.loggedIn) {
     viewLogin();
