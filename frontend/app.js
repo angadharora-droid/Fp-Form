@@ -190,18 +190,58 @@ function textarea(label, name, wide = true) {
     </div>`;
 }
 
-function viewForm() {
+// Fill the booking form's fields from an existing booking (edit mode).
+function populateForm(b) {
+  const form = document.getElementById('bookingForm');
+  if (!form) return;
+
+  // Plain text / select / textarea fields keyed by their `name`.
+  const simpleFields = [
+    'reservation_no', 'date', 'function_type', 'venue', 'mg', 'expected_pax',
+    'time_slot', 'menu', 'party_name', 'company_name', 'gst_no', 'pan_no',
+    'address', 'contact_person', 'telephone', 'email', 'seating_arrangement',
+    'add_on_rooms', 'rate', 'hall_rent', 'advance_amt', 'transaction_details',
+    'board_to_read', 'details_amount', 'billing_instruction', 'housekeeping',
+    'fnb', 'kitchen',
+  ];
+  simpleFields.forEach((name) => {
+    const el = form.querySelector(`[name="${name}"]`);
+    if (el && b[name] != null) el.value = b[name];
+  });
+
+  // Mode of payment (radio group).
+  const pay = form.querySelector(
+    `[name="mode_of_payment"][value="${(b.mode_of_payment || '').replace(/"/g, '\\"')}"]`
+  );
+  if (pay) pay.checked = true;
+
+  // Other charges (checkbox group) — stored as a comma-joined string.
+  const charges = (b.other_charges || '').split(',').map((s) => s.trim());
+  form.querySelectorAll('[name="other_charges"]').forEach((cb) => {
+    cb.checked = charges.includes(cb.value);
+  });
+
+  // Allow keeping/choosing any date when editing (booking may already be past).
+  const dateEl = form.querySelector('[name="date"]');
+  if (dateEl) dateEl.removeAttribute('min');
+}
+
+function viewForm(editBooking) {
   const o = state.options;
+  const editing = !!editBooking;
+  const bookingNo = editing
+    ? (esc(editBooking.series_no) || String(editBooking.id).padStart(3, '0'))
+    : 'Auto (e.g. 001)';
   $app.innerHTML = `
     <div class="card">
-      <h1>Function Booking Form</h1>
+      <h1>${editing ? 'Edit Booking No ' + bookingNo : 'Function Booking Form'}</h1>
       <p class="subtitle">Submitted by <strong>${esc(state.me.username)}</strong></p>
       <div class="alert" id="formErr" style="display:none"></div>
       <form id="bookingForm" novalidate>
         <div class="grid">
           <div class="field">
             <label>Booking No</label>
-            <input type="text" value="Auto (e.g. 001)" readonly class="readonly">
+            <input type="text" value="${bookingNo}" readonly class="readonly">
           </div>
           <div class="field">
             <label>Timestamp</label>
@@ -294,11 +334,18 @@ function viewForm() {
           ${textarea('Kitchen', 'kitchen')}
         </div>
 
-        <button type="submit" class="btn">Submit &amp; Save Booking</button>
+        <button type="submit" class="btn">${editing ? 'Update Booking' : 'Submit &amp; Save Booking'}</button>
       </form>
     </div>`;
 
-  startClock();
+  if (editing) {
+    stopClock();
+    const ts = document.getElementById('timestamp');
+    if (ts) ts.value = new Date(editBooking.created_at).toLocaleString();
+    populateForm(editBooking);
+  } else {
+    startClock();
+  }
 
   document.getElementById('bookingForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -311,12 +358,14 @@ function viewForm() {
         payload[k] = v;
       }
     }
-    const { ok, data } = await api('/bookings', {
-      method: 'POST',
+    const { ok, data } = await api(editing ? '/bookings/' + editBooking.id : '/bookings', {
+      method: editing ? 'PUT' : 'POST',
       body: JSON.stringify(payload),
     });
     if (ok) {
-      location.hash = '#/booking/' + data.id + '?created=1';
+      location.hash = editing
+        ? '#/booking/' + editBooking.id
+        : '#/booking/' + data.id + '?created=1';
     } else if (data && data.errors) {
       const el = document.getElementById('formErr');
       el.textContent = 'Please fill in all required fields marked with *.';
@@ -442,6 +491,7 @@ async function viewBooking(id, created) {
         <h1>Booking No ${series}</h1>
         <div class="card-actions">
           <button class="btn btn-sm" id="pdfBtn">Download PDF (A4)</button>
+          <a class="btn btn-sm btn-ghost" href="#/booking/${b.id}/edit">Edit</a>
           <a class="btn btn-sm btn-ghost" href="#/form">New Booking</a>
         </div>
       </div>
@@ -450,6 +500,14 @@ async function viewBooking(id, created) {
     </div>`;
 
   document.getElementById('pdfBtn').onclick = () => printBooking(b);
+}
+
+// Loads a booking, then opens the form pre-filled for editing.
+async function viewEditBooking(id) {
+  $app.innerHTML = `<div class="card"><p class="subtitle">Loading booking…</p></div>`;
+  const { ok, data } = await api('/bookings/' + id);
+  if (!ok) return (location.hash = '#/login');
+  viewForm(data);
 }
 
 // Opens a print-friendly A4 window and triggers the browser print dialog.
@@ -511,6 +569,8 @@ async function route() {
 
   if (path === '/' || path === '/form') return viewForm();
   if (path === '/bookings') return viewBookings();
+  const em = path.match(/^\/booking\/(\d+)\/edit$/);
+  if (em) return viewEditBooking(em[1]);
   const m = path.match(/^\/booking\/(\d+)$/);
   if (m) return viewBooking(m[1], /created=1/.test(query || ''));
   if (path === '/login') return (location.hash = '#/form');

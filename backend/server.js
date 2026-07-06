@@ -250,40 +250,48 @@ app.get(
   })
 );
 
+// Extract + validate booking fields from a request body. Shared by create
+// and update. `checkPastDate` is only enforced on create (an edit may touch a
+// booking whose date has already passed).
+function parseBookingBody(body, { checkPastDate }) {
+  const data = {};
+  for (const key of FIELDS) {
+    if (key === 'other_charges') continue;
+    data[key] = String(body[key] || '').trim();
+  }
+  const otherCharges = Array.isArray(body.other_charges)
+    ? body.other_charges
+    : body.other_charges
+    ? [body.other_charges]
+    : [];
+
+  const errors = {};
+  for (const key of REQUIRED) {
+    if (!data[key]) errors[key] = 'This field is required.';
+  }
+  if (data.email && (!data.email.includes('@') || !data.email.includes('.'))) {
+    errors.email = 'Enter a valid email address.';
+  }
+  if (data.date) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const picked = new Date(data.date + 'T00:00:00');
+    if (isNaN(picked.getTime())) {
+      errors.date = 'Enter a valid date.';
+    } else if (checkPastDate && picked < today) {
+      errors.date = 'Date cannot be in the past.';
+    }
+  }
+  return { data, otherCharges, errors };
+}
+
 app.post(
   '/api/bookings',
   authRequired,
   wrap(async (req, res) => {
-    const body = req.body || {};
-    const data = {};
-    for (const key of FIELDS) {
-      if (key === 'other_charges') continue;
-      data[key] = String(body[key] || '').trim();
-    }
-    const otherCharges = Array.isArray(body.other_charges)
-      ? body.other_charges
-      : body.other_charges
-      ? [body.other_charges]
-      : [];
-
-    const errors = {};
-    for (const key of REQUIRED) {
-      if (!data[key]) errors[key] = 'This field is required.';
-    }
-    if (data.email && (!data.email.includes('@') || !data.email.includes('.'))) {
-      errors.email = 'Enter a valid email address.';
-    }
-    // Reject bookings dated in the past (guards against a bypassed client).
-    if (data.date) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const picked = new Date(data.date + 'T00:00:00');
-      if (isNaN(picked.getTime())) {
-        errors.date = 'Enter a valid date.';
-      } else if (picked < today) {
-        errors.date = 'Date cannot be in the past.';
-      }
-    }
+    const { data, otherCharges, errors } = parseBookingBody(req.body || {}, {
+      checkPastDate: true,
+    });
     if (Object.keys(errors).length > 0) {
       return res.status(400).json({ errors });
     }
@@ -303,6 +311,27 @@ app.post(
     sendBookingEmail(booking.toJSON());
 
     res.status(201).json({ id: booking.seq, series_no: booking.series_no });
+  })
+);
+
+app.put(
+  '/api/bookings/:id',
+  authRequired,
+  wrap(async (req, res) => {
+    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const { data, otherCharges, errors } = parseBookingBody(req.body || {}, {
+      checkPastDate: false,
+    });
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ errors });
+    }
+
+    Object.assign(booking, data, { other_charges: otherCharges.join(', ') });
+    await booking.save();
+
+    res.json({ id: booking.seq, series_no: booking.series_no });
   })
 );
 
