@@ -339,6 +339,22 @@ app.put(
   })
 );
 
+// Re-send the PDF email for an existing booking (e.g. if the first send failed).
+app.post(
+  '/api/bookings/:id/resend',
+  authRequired,
+  wrap(async (req, res) => {
+    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const result = await sendBookingEmail(booking.toJSON());
+    if (result.sent) {
+      return res.json({ ok: true, recipients: result.recipients });
+    }
+    res.status(502).json({ ok: false, error: result.reason || 'Email failed' });
+  })
+);
+
 // Health check / root.
 app.get('/', (req, res) => {
   res.json({ service: 'amravti-fp-api', ok: true });

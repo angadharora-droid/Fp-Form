@@ -491,6 +491,7 @@ async function viewBooking(id, created) {
         <h1>Booking No ${series}</h1>
         <div class="card-actions">
           <button class="btn btn-sm" id="pdfBtn">Download PDF (A4)</button>
+          <button class="btn btn-sm btn-ghost" id="resendBtn">Resend Email</button>
           <a class="btn btn-sm btn-ghost" href="#/booking/${b.id}/edit">Edit</a>
           <a class="btn btn-sm btn-ghost" href="#/form">New Booking</a>
         </div>
@@ -500,6 +501,18 @@ async function viewBooking(id, created) {
     </div>`;
 
   document.getElementById('pdfBtn').onclick = () => printBooking(b);
+
+  const resendBtn = document.getElementById('resendBtn');
+  resendBtn.onclick = async () => {
+    if (!confirm('Email this booking PDF to the internal recipient list now?')) return;
+    resendBtn.disabled = true;
+    resendBtn.textContent = 'Sending…';
+    const { ok, data } = await api('/bookings/' + b.id + '/resend', { method: 'POST' });
+    resendBtn.disabled = false;
+    resendBtn.textContent = 'Resend Email';
+    if (ok) alert(`Email sent to ${data.recipients} recipient(s).`);
+    else alert('Email failed: ' + ((data && data.error) || 'unknown error'));
+  };
 }
 
 // Loads a booking, then opens the form pre-filled for editing.
