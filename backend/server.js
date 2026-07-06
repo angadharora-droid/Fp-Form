@@ -23,6 +23,8 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
 const session = require('express-session');
+// connect-mongo v6 is ESM-first; under CommonJS the class is the default export.
+const MongoStore = require('connect-mongo').default || require('connect-mongo');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
@@ -155,6 +157,12 @@ app.use(
     secret: SECRET_KEY,
     resave: false,
     saveUninitialized: false,
+    // Persist sessions in MongoDB so they survive server restarts/redeploys
+    // (Render's free tier restarts often; an in-memory store loses logins).
+    store: MongoStore.create({
+      mongoUrl: MONGODB_URI,
+      ttl: 8 * 60 * 60, // seconds — matches the cookie maxAge
+    }),
     cookie: {
       httpOnly: true,
       sameSite: IS_PROD ? 'none' : 'lax',
