@@ -10,6 +10,8 @@
  */
 
 const nodemailer = require('nodemailer');
+const dns = require('dns').promises;
+const net = require('net');
 const { renderBookingPdf } = require('./pdf');
 
 const RECIPIENTS = (process.env.MAIL_RECIPIENTS || '')
@@ -23,14 +25,35 @@ function isConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && RECIPIENTS.length);
 }
 
-function getTransporter() {
+async function getTransporter() {
   if (transporter) return transporter;
+
+  const smtpHost = process.env.SMTP_HOST;
+
+  // Force IPv4. Many hosts (Railway, Vercel, Render's free tier) have an IPv6
+  // network interface but no route to the IPv6 internet. nodemailer 9 resolves
+  // the SMTP host with dns.resolve4 + dns.resolve6 and then picks one address at
+  // *random*, so whenever it lands on an AAAA record the connection dies with
+  // `connect ENETUNREACH <ipv6>`. Resolving to an IPv4 literal ourselves makes
+  // nodemailer skip its resolver entirely; tls.servername keeps SNI and TLS
+  // certificate validation working against the original hostname.
+  let connectHost = smtpHost;
+  if (smtpHost && !net.isIP(smtpHost)) {
+    try {
+      const [ipv4] = await dns.resolve4(smtpHost);
+      if (ipv4) connectHost = ipv4;
+    } catch (err) {
+      console.warn(`[mail] IPv4 resolve of ${smtpHost} failed (${err.message}); using hostname as-is.`);
+    }
+  }
+
   transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: connectHost,
     port: Number(process.env.SMTP_PORT || 587),
     // secure=true for port 465 (implicit TLS); false uses STARTTLS on 587.
     secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    tls: { servername: smtpHost },
   });
   return transporter;
 }
@@ -58,7 +81,7 @@ async function sendBookingEmail(booking) {
       .replace(/[^\w\-]+/g, '_')
       .slice(0, 40)}.pdf`;
 
-    const info = await getTransporter().sendMail({
+    const info = await (await getTransporter()).sendMail({
       from: process.env.MAIL_FROM || process.env.SMTP_USER,
       to: RECIPIENTS,
       subject: `Function Booking ${series} — ${booking.party_name || ''} (${booking.date || ''})`.trim(),
