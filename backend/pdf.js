@@ -83,49 +83,63 @@ function renderBookingPdf(b) {
     doc.moveDown(0.8);
 
     // --- Sections ------------------------------------------------------------
-    const labelW = width * 0.28;
-    const valueW = width - labelW - 12;
+    // Two-column grid: labels/values are laid out in two side-by-side columns so
+    // the whole form fits on a single A4 page (no addPage anywhere below).
+    const colGap = 18;
+    const colW = (width - colGap) / 2;
+    const labelW = colW * 0.4;
+    const valueW = colW - labelW - 6;
+    const colX = [left, left + colW + colGap];
+
+    const cellHeight = (label, text) => {
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const lh = doc.heightOfString(label, { width: labelW });
+      doc.font('Helvetica').fontSize(8.5);
+      const vh = doc.heightOfString(text, { width: valueW });
+      return Math.max(lh, vh);
+    };
+
+    const drawCell = (x, y, label, text) => {
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#555')
+        .text(label, x, y, { width: labelW });
+      doc.font('Helvetica').fontSize(8.5).fillColor('#111')
+        .text(text, x + labelW + 6, y, { width: valueW });
+    };
 
     for (const [title, rows] of SECTIONS) {
-      ensureSpace(doc, 60);
       // Section heading with a shaded bar.
       const hy = doc.y;
-      doc.rect(left, hy, width, 18).fill('#f0f0f0');
-      doc.rect(left, hy, 3, 18).fill('#111');
-      doc.fillColor('#111').font('Helvetica-Bold').fontSize(10)
+      doc.rect(left, hy, width, 16).fill('#f0f0f0');
+      doc.rect(left, hy, 3, 16).fill('#111');
+      doc.fillColor('#111').font('Helvetica-Bold').fontSize(9)
         .text(title.toUpperCase(), left + 10, hy + 4, { width: width - 12 });
-      doc.y = hy + 22;
+      doc.y = hy + 19;
 
-      for (const [label, key] of rows) {
-        const text = val(b[key]);
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('#555');
-        const lh = doc.heightOfString(label, { width: labelW });
-        doc.font('Helvetica').fontSize(9).fillColor('#111');
-        const vh = doc.heightOfString(text, { width: valueW });
-        const rowH = Math.max(lh, vh) + 6;
+      // Walk rows two at a time — one per column, sharing a baseline.
+      for (let i = 0; i < rows.length; i += 2) {
+        const [lLabel, lKey] = rows[i];
+        const lText = val(b[lKey]);
+        const rPair = rows[i + 1];
+        const rText = rPair ? val(b[rPair[1]]) : '';
 
-        ensureSpace(doc, rowH + 4);
+        const rowH = Math.max(
+          cellHeight(lLabel, lText),
+          rPair ? cellHeight(rPair[0], rText) : 0
+        ) + 6;
+
         const y0 = doc.y;
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('#555')
-          .text(label, left, y0, { width: labelW });
-        doc.font('Helvetica').fontSize(9).fillColor('#111')
-          .text(text, left + labelW + 12, y0, { width: valueW });
+        drawCell(colX[0], y0, lLabel, lText);
+        if (rPair) drawCell(colX[1], y0, rPair[0], rText);
         const y1 = y0 + rowH;
         doc.moveTo(left, y1 - 3).lineTo(right, y1 - 3)
           .lineWidth(0.5).strokeColor('#eee').stroke();
         doc.y = y1;
       }
-      doc.moveDown(0.5);
+      doc.moveDown(0.4);
     }
 
     doc.end();
   });
-}
-
-// Add a page break if fewer than `needed` points remain on the page.
-function ensureSpace(doc, needed) {
-  const bottom = doc.page.height - doc.page.margins.bottom;
-  if (doc.y + needed > bottom) doc.addPage();
 }
 
 module.exports = { renderBookingPdf };
