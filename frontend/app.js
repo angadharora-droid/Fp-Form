@@ -1,8 +1,10 @@
 /* Amravti FP — frontend SPA. Talks to the backend JSON API (separate origin). */
 
-// Backend API base URL. Uses "localhost" to stay same-site with the frontend
-// (localhost:5173 ↔ localhost:3001) so the session cookie is sent.
-const API_BASE = 'http://localhost:3001';
+// Backend API base URL.
+// In production (Vercel) set VITE_API_BASE to the deployed backend URL
+// (e.g. https://fp-form-backend.onrender.com). In local dev it falls back
+// to localhost:3001 to stay same-site with the Vite dev server.
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
 
 const state = { me: { loggedIn: false }, options: null };
 

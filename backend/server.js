@@ -128,14 +128,22 @@ const app = express();
 // Allow the separate frontend origin to call this API with the session cookie.
 app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
 app.use(express.json());
+// In production the frontend (Vercel) and backend (Render) are different
+// sites, so the session cookie must be SameSite=None + Secure to be sent on
+// cross-site API calls. Render terminates TLS at a proxy, so trust it.
+const IS_PROD = process.env.NODE_ENV === 'production';
+if (IS_PROD) app.set('trust proxy', 1);
 app.use(
   session({
     secret: SECRET_KEY,
     resave: false,
     saveUninitialized: false,
-    // localhost:5173 and localhost:3001 are the same site (port is ignored),
-    // so a Lax cookie is still sent on these cross-origin API calls.
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 },
+    cookie: {
+      httpOnly: true,
+      sameSite: IS_PROD ? 'none' : 'lax',
+      secure: IS_PROD,
+      maxAge: 1000 * 60 * 60 * 8,
+    },
   })
 );
 
