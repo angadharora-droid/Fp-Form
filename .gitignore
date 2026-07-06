@@ -1,0 +1,9 @@
+node_modules/
+submissions.db
+submissions.db-*
+bookings.db
+bookings.db-*
+.mongodb-data/
+*.log
+.DS_Store
+.env
