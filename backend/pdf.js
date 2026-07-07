@@ -1,19 +1,25 @@
 /**
- * Renders a booking document to a PDF Buffer, mirroring the A4 print layout
- * used by the frontend (frontend/app.js → printBooking).
+ * Renders a booking document to a single-page A4 PDF Buffer.
+ *
+ * Layout: full-width header, then two columns that ALWAYS stay on one page —
+ *   • LEFT  = the (potentially very long) Menu.
+ *   • RIGHT = every other booking field, grouped into sections.
+ * The body font size is shrunk automatically until both columns fit the page,
+ * so even a 60-item menu never spills onto a second page.
  *
  * Uses pdfkit (pure JS, no headless browser needed).
  */
 
 const PDFDocument = require('pdfkit');
 
-// Section → list of [label, fieldKey] rows, matching the on-screen detail view.
-const SECTIONS = [
+// RIGHT column → section → list of [label, fieldKey] rows. Menu is intentionally
+// NOT here: it is rendered on its own in the left column.
+const RIGHT_SECTIONS = [
   ['Function Prospectus', [
     ['Series No', 'series_no'], ['Reservation No', 'reservation_no'],
     ['Date', 'date'],
     ['Type of Function', 'function_type'], ['Venue', 'venue'], ['MG', 'mg'],
-    ['Expected Pax', 'expected_pax'], ['Time Slot', 'time_slot'], ['Menu', 'menu'],
+    ['Expected Pax', 'expected_pax'], ['Time Slot', 'time_slot'],
   ]],
   ['Party Details', [
     ['Name of Party', 'party_name'], ['Company Name', 'company_name'],
@@ -47,21 +53,28 @@ function val(v) {
  */
 function renderBookingPdf(b) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ size: 'A4', margin: 36 });
     const chunks = [];
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+
+    // Hard guarantee: exactly ONE A4 page. pdfkit silently calls addPage()
+    // whenever a text write overflows the bottom margin; neutralise it so a long
+    // value can never create a second page. (The auto-fit below is what keeps
+    // text inside the page in the normal case — this is just a backstop.)
+    doc.addPage = () => doc;
 
     const series = b.series_no || String(b.id ?? b.seq ?? '').padStart(3, '0');
     const stamp = b.created_at ? new Date(b.created_at).toLocaleString() : '';
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
     const width = right - left;
+    const pageBottom = doc.page.height - doc.page.margins.bottom;
 
-    // --- Header --------------------------------------------------------------
+    // --- Header (full width) -------------------------------------------------
     doc.fillColor('#111').font('Helvetica-Bold').fontSize(18)
-      .text('Centre Point Amravti', left, doc.y, { continued: false });
+      .text('Centre Point Amravti', left, doc.page.margins.top);
     doc.font('Helvetica').fontSize(10).fillColor('#333')
       .text('Function Booking Form');
 
@@ -72,70 +85,100 @@ function renderBookingPdf(b) {
       stamp ? `Timestamp: ${stamp}` : null,
     ].filter(Boolean);
     doc.fontSize(9).fillColor('#555')
-      .text(metaLines.join('\n'), left, doc.page.margins.top, {
-        width,
-        align: 'right',
-      });
+      .text(metaLines.join('\n'), left, doc.page.margins.top, { width, align: 'right' });
 
     doc.moveDown(0.5);
     const lineY = doc.y + 2;
     doc.moveTo(left, lineY).lineTo(right, lineY).lineWidth(1.5).strokeColor('#111').stroke();
-    doc.moveDown(0.8);
 
-    // --- Sections ------------------------------------------------------------
-    // Two-column grid: labels/values are laid out in two side-by-side columns so
-    // the whole form fits on a single A4 page (no addPage anywhere below).
-    const colGap = 18;
-    const colW = (width - colGap) / 2;
-    const labelW = colW * 0.4;
-    const valueW = colW - labelW - 6;
-    const colX = [left, left + colW + colGap];
+    // --- Two-column geometry -------------------------------------------------
+    const contentTop = lineY + 8;
+    const availH = pageBottom - contentTop;
+    const gap = 16;
+    const leftW = (width - gap) * 0.44;      // menu column
+    const rightW = (width - gap) * 0.56;     // everything-else column
+    const leftX = left;
+    const rightX = left + leftW + gap;
+    const menuText = val(b.menu);
 
-    const cellHeight = (label, text) => {
-      doc.font('Helvetica-Bold').fontSize(8.5);
-      const lh = doc.heightOfString(label, { width: labelW });
-      doc.font('Helvetica').fontSize(8.5);
-      const vh = doc.heightOfString(text, { width: valueW });
-      return Math.max(lh, vh);
-    };
+    const barH = (fs) => fs + 7;
+    const rLabelW = (fs) => rightW * 0.42;
+    const rValueW = (fs) => rightW - rLabelW(fs) - 6;
 
-    const drawCell = (x, y, label, text) => {
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#555')
-        .text(label, x, y, { width: labelW });
-      doc.font('Helvetica').fontSize(8.5).fillColor('#111')
-        .text(text, x + labelW + 6, y, { width: valueW });
-    };
-
-    for (const [title, rows] of SECTIONS) {
-      // Section heading with a shaded bar.
-      const hy = doc.y;
-      doc.rect(left, hy, width, 16).fill('#f0f0f0');
-      doc.rect(left, hy, 3, 16).fill('#111');
-      doc.fillColor('#111').font('Helvetica-Bold').fontSize(9)
-        .text(title.toUpperCase(), left + 10, hy + 4, { width: width - 12 });
-      doc.y = hy + 19;
-
-      // Walk rows two at a time — one per column, sharing a baseline.
-      for (let i = 0; i < rows.length; i += 2) {
-        const [lLabel, lKey] = rows[i];
-        const lText = val(b[lKey]);
-        const rPair = rows[i + 1];
-        const rText = rPair ? val(b[rPair[1]]) : '';
-
-        const rowH = Math.max(
-          cellHeight(lLabel, lText),
-          rPair ? cellHeight(rPair[0], rText) : 0
-        ) + 6;
-
-        const y0 = doc.y;
-        drawCell(colX[0], y0, lLabel, lText);
-        if (rPair) drawCell(colX[1], y0, rPair[0], rText);
-        const y1 = y0 + rowH;
-        doc.moveTo(left, y1 - 3).lineTo(right, y1 - 3)
-          .lineWidth(0.5).strokeColor('#eee').stroke();
-        doc.y = y1;
+    // Height each column would need at a given font size.
+    const rightHeight = (fs) => {
+      let h = 0;
+      for (const [, rows] of RIGHT_SECTIONS) {
+        h += barH(fs) + 4;
+        for (const [label, key] of rows) {
+          doc.font('Helvetica-Bold').fontSize(fs);
+          const lh = doc.heightOfString(label, { width: rLabelW(fs) });
+          doc.font('Helvetica').fontSize(fs);
+          const vh = doc.heightOfString(val(b[key]), { width: rValueW(fs) });
+          h += Math.max(lh, vh) + 3;
+        }
+        h += 4;
       }
-      doc.moveDown(0.4);
+      return h;
+    };
+    const leftHeight = (fs) => {
+      doc.font('Helvetica').fontSize(fs);
+      return barH(fs) + 6 + doc.heightOfString(menuText, { width: leftW - 8 });
+    };
+
+    // Pick the largest font size (readability) at which BOTH columns fit.
+    let fs = 4.5;
+    for (let s = 9; s >= 4.5; s -= 0.5) {
+      if (rightHeight(s) <= availH && leftHeight(s) <= availH) { fs = s; break; }
+    }
+
+    // --- Draw ----------------------------------------------------------------
+    const sectionBar = (x, y, w, title) => {
+      doc.rect(x, y, w, barH(fs)).fill('#f0f0f0');
+      doc.rect(x, y, 3, barH(fs)).fill('#111');
+      doc.fillColor('#111').font('Helvetica-Bold').fontSize(fs)
+        .text(title.toUpperCase(), x + 8, y + (barH(fs) - fs) / 2 - 1,
+          { width: w - 10, lineBreak: false });
+    };
+
+    // Left column: MENU
+    {
+      let y = contentTop;
+      sectionBar(leftX, y, leftW, 'Menu');
+      y += barH(fs) + 6;
+      doc.font('Helvetica').fontSize(fs).fillColor('#111')
+        .text(menuText, leftX, y, { width: leftW - 4, height: pageBottom - y, ellipsis: true });
+    }
+
+    // Right column: all other sections
+    {
+      let y = contentTop;
+      for (const [title, rows] of RIGHT_SECTIONS) {
+        if (y + barH(fs) > pageBottom) break;
+        sectionBar(rightX, y, rightW, title);
+        y += barH(fs) + 4;
+        for (const [label, key] of rows) {
+          if (y + fs > pageBottom) break;
+          const value = val(b[key]);
+          const maxH = pageBottom - y;
+          doc.font('Helvetica-Bold').fontSize(fs);
+          const lh = doc.heightOfString(label, { width: rLabelW(fs) });
+          doc.font('Helvetica').fontSize(fs);
+          const vh = doc.heightOfString(value, { width: rValueW(fs) });
+          const rowH = Math.min(Math.max(lh, vh), maxH);
+
+          doc.font('Helvetica-Bold').fontSize(fs).fillColor('#555')
+            .text(label, rightX, y, { width: rLabelW(fs), height: rowH, ellipsis: true });
+          doc.font('Helvetica').fontSize(fs).fillColor('#111')
+            .text(value, rightX + rLabelW(fs) + 6, y, { width: rValueW(fs), height: rowH, ellipsis: true });
+
+          const yy = y + rowH + 3;
+          doc.moveTo(rightX, yy - 2).lineTo(rightX + rightW, yy - 2)
+            .lineWidth(0.4).strokeColor('#eee').stroke();
+          y = yy;
+        }
+        y += 4;
+      }
     }
 
     doc.end();
