@@ -5,7 +5,19 @@
 // (e.g. https://fp-form-backend.onrender.com). In local dev it falls back
 // to localhost:3001 to stay same-site with the Vite dev server.
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
-const PROPERTY_CODE = import.meta.env.VITE_PROPERTY_CODE || 'centre_point_amravati';
+const VENUES = [
+  ['centre_point_amravati', 'Centre Point Amravati'],
+  ['centre_point_nagpur', 'Centre Point Nagpur'],
+  ['dali', 'Dali'],
+  ['centre_point_navi_mumbai', 'Centre Point Navi Mumbai'],
+  ['pablo', 'Pablo The Art Cafe'],
+];
+const VENUE_CODES = new Set(VENUES.map(([code]) => code));
+let propertyCode = '';
+try {
+  const savedCode = localStorage.getItem('fp_property_code') || '';
+  if (VENUE_CODES.has(savedCode)) propertyCode = savedCode;
+} catch (e) { /* ignore storage errors */ }
 
 const state = { me: { loggedIn: false }, options: null };
 
@@ -26,7 +38,7 @@ async function api(path, opts = {}) {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      'X-Property-Code': PROPERTY_CODE,
+      'X-Property-Code': propertyCode,
       ...(opts.headers || {}),
     },
   });
@@ -82,12 +94,22 @@ function viewLogin(msg) {
   // Restore remembered credentials if the user opted in previously.
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem('fp_login') || '{}'); } catch (e) { /* ignore */ }
+  const selectedVenue = propertyCode || (VENUE_CODES.has(saved.propertyCode) ? saved.propertyCode : '');
   $app.innerHTML = `
     <div class="card auth-card">
       <h1>Admin Login</h1>
       <p class="subtitle">Sign in to open the Function Booking Form.</p>
       <div class="alert" id="err" style="display:none"></div>
       <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="propertyCode">Venue</label>
+          <select id="propertyCode" name="propertyCode" required>
+            <option value="">Select venue…</option>
+            ${VENUES.map(([code, name]) =>
+              `<option value="${code}"${code === selectedVenue ? ' selected' : ''}>${esc(name)}</option>`
+            ).join('')}
+          </select>
+        </div>
         <div class="field">
           <label for="username">Username</label>
           <input type="text" id="username" name="username" value="${esc(saved.username || '')}" autofocus>
@@ -117,14 +139,28 @@ function viewLogin(msg) {
     toggle.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
   };
 
+  document.getElementById('propertyCode').onchange = async (e) => {
+    propertyCode = e.target.value;
+    try { localStorage.setItem('fp_property_code', propertyCode); } catch (err) {}
+    if (!propertyCode) return applyBranding();
+    const result = await api('/options');
+    if (result.ok) {
+      state.options = result.data;
+      applyBranding(result.data.propertyName);
+    }
+  };
+
   document.getElementById('loginForm').onsubmit = async (e) => {
     e.preventDefault();
+    propertyCode = document.getElementById('propertyCode').value;
     const username = document.getElementById('username').value.trim();
     const password = pw.value;
+    if (!VENUE_CODES.has(propertyCode)) return showErr('Select a venue.');
+    try { localStorage.setItem('fp_property_code', propertyCode); } catch (err) {}
     // Save or clear remembered credentials based on the checkbox.
     try {
       if (document.getElementById('remember').checked) {
-        localStorage.setItem('fp_login', JSON.stringify({ username, password }));
+        localStorage.setItem('fp_login', JSON.stringify({ username, password, propertyCode }));
       } else {
         localStorage.removeItem('fp_login');
       }
@@ -134,6 +170,11 @@ function viewLogin(msg) {
       body: JSON.stringify({ username, password }),
     });
     if (ok) {
+      const optionsResult = await api('/options');
+      if (optionsResult.ok) {
+        state.options = optionsResult.data;
+        applyBranding(optionsResult.data.propertyName);
+      }
       state.me = { loggedIn: true, username: data.username };
       // If the hash is already '#/form' (the login form is shown there),
       // changing it fires no hashchange event, so render the form directly.
@@ -538,7 +579,7 @@ async function printBooking(b) {
   try {
     const res = await fetch(API_BASE + '/api/bookings/' + b.id + '/pdf', {
       credentials: 'include',
-      headers: { 'X-Property-Code': PROPERTY_CODE },
+      headers: { 'X-Property-Code': propertyCode },
     });
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
@@ -591,7 +632,7 @@ async function route() {
 
 // --- Init -------------------------------------------------------------------
 
-// The backend resolves this frontend's PROPERTY_CODE to a trusted venue name.
+// The backend resolves the selected venue code to a trusted venue name.
 // Replace the generic index.html branding once /api/options has answered.
 function applyBranding(name) {
   const propertyName = name || 'Function Booking';
@@ -601,13 +642,21 @@ function applyBranding(name) {
 }
 
 async function init() {
+  if (!propertyCode) {
+    state.me = { loggedIn: false };
+    applyBranding();
+    renderNav();
+    window.addEventListener('hashchange', route);
+    route();
+    return;
+  }
   const [me, options] = await Promise.all([
     api('/me').then((r) => r.data),
     api('/options').then((r) => r.data),
   ]);
   state.me = me;
   state.options = options;
-  applyBranding(options.propertyName);
+  applyBranding(options && options.propertyName);
   renderNav();
   window.addEventListener('hashchange', route);
   route();

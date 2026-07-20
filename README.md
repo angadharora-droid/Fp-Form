@@ -1,12 +1,12 @@
 # Multi-property Function Booking Form
 
 A multi-venue booking app built with **Node.js (Express)** + **MongoDB
-(Mongoose)**. One shared backend serves separate frontend deployments for
-Centre Point Amravati, Centre Point Nagpur, Centre Point Navi Mumbai, Pablo,
-and Dali.
+(Mongoose)**. One shared backend and one shared frontend serve Centre Point
+Amravati, Centre Point Nagpur, Centre Point Navi Mumbai, Pablo, and Dali.
 
-Each frontend identifies its venue. The backend then applies that venue's name,
-login allowlist, booking-data scope, PDF branding, and email-recipient list.
+The user selects a venue on the login page. The backend then applies that
+venue's name, login allowlist, booking-data scope, PDF branding, and
+email-recipient list.
 
 A **frontend admin login** protects the form: the admin logs in first, and only
 then does the **Function Booking Form (FP form)** open. The login is a separate
@@ -17,7 +17,7 @@ auto-generated series number (`001`, `002`, …) and a timestamp.
 
 ## Features
 
-- **Admin login** (session-based, passwords hashed with bcrypt)
+- **Venue-specific admin login** (session-based, credentials kept in backend environment variables)
 - The FP form only opens **after** a successful admin login
 - Full booking form with sections: Function Prospectus, Party Details, Billing,
   Additional Services, Instructions
@@ -30,9 +30,8 @@ auto-generated series number (`001`, `002`, …) and a timestamp.
 
 ## Project structure
 
-**One shared backend plus venue-specific frontends**: they run on different
-origins; each frontend calls the API with its venue code, and the backend enables
-**CORS with credentials** so the login session cookie still works.
+**One shared backend plus one shared frontend**: the selected venue code is sent
+with every API request, and the backend enforces the corresponding profile.
 
 - **Backend API** → `http://localhost:3001` (Express + Mongoose + MongoDB)
 - **Frontend UI** → `http://localhost:5173` (static server for the SPA)
@@ -157,24 +156,22 @@ in the hosting dashboard and local ignored `.env`; never commit them.
 
 `.env` is gitignored; `.env.example` is committed as a template.
 
-### Shared backend and venue frontends
+### Shared backend and frontend
 
-The backend is deployed once. Its environment does not contain a
-`PROPERTY_CODE`; instead, each frontend build supplies one:
+Both are deployed once. The frontend only needs the shared API URL:
 
 ```dotenv
 VITE_API_BASE=https://shared-booking-api.example.com
-VITE_PROPERTY_CODE=pablo
 ```
 
 The built-in `PROPERTY_CODE` values are `centre_point_amravati`,
 `centre_point_nagpur`, `dali`, `centre_point_navi_mumbai`, and `pablo`. Each
 selects a fixed username/password allowlist and email-recipient allowlist from
 `backend/property.js`.
-The backend uses the code to select the fixed users and recipients. All booking
-queries include the venue code, so users cannot view or edit another venue's
-records. The frontend gets the display name from `/api/options`, so its title,
-header and footer update automatically.
+The login page supplies the selected venue code. The backend uses it to select
+the fixed users and recipients. All booking queries include the venue code, so
+users cannot view or edit another venue's records. The frontend gets the display
+name from `/api/options`, so its title, header and footer update automatically.
 
 ## MongoDB (local)
 

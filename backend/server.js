@@ -1,8 +1,8 @@
 /**
  * Function Booking — Backend API (Express + MongoDB/Mongoose).
  *
- * A shared JSON API for venue-specific Function Booking frontends. Each
- * request selects a server-controlled venue profile using X-Property-Code.
+ * A shared JSON API for the multi-venue Function Booking frontend. Each request
+ * selects a server-controlled venue profile using X-Property-Code.
  *
  * Storage: MongoDB via Mongoose (connection from backend/.env → MONGODB_URI).
  * Auth: a frontend admin logs in; only then can the booking endpoints be used.

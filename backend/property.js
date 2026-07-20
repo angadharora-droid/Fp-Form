@@ -1,7 +1,7 @@
 /**
  * Venue-specific access and notification configuration.
  *
- * A single backend serves multiple venue-specific frontend deployments.
+ * A single backend and frontend serve multiple venues.
  */
 
 const PROPERTY_NAME = 'Function Booking';
