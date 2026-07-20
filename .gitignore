@@ -1,4 +1,5 @@
 node_modules/
+frontend/dist/
 submissions.db
 submissions.db-*
 bookings.db
@@ -9,4 +10,3 @@ bookings.db-*
 .env
 .env.local
 .env.*.local
-frontend/.env.example

@@ -1,15 +1,13 @@
 /**
- * Amravti FP — Backend API (Express + MongoDB/Mongoose).
+ * Function Booking — Backend API (Express + MongoDB/Mongoose).
  *
- * A JSON API for the Centre Point Amravti Function Booking Form. The frontend
- * (in ../frontend) is served as static files from this same server, so the
- * session cookie is same-origin and no CORS setup is needed.
+ * A shared JSON API for venue-specific Function Booking frontends. Each
+ * request selects a server-controlled venue profile using X-Property-Code.
  *
  * Storage: MongoDB via Mongoose (connection from backend/.env → MONGODB_URI).
  * Auth: a frontend admin logs in; only then can the booking endpoints be used.
  *
- * Default admin (first run only): admin / admin123
- *   Override with ADMIN_USERNAME / ADMIN_PASSWORD.
+ * Known venue profiles use fixed user and notification allowlists.
  */
 
 const path = require('path');
@@ -26,21 +24,26 @@ const session = require('express-session');
 // connect-mongo v6 is ESM-first; under CommonJS the class is the default export.
 const MongoStore = require('connect-mongo').default || require('connect-mongo');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const { sendBookingEmail } = require('./mailer');
 const { renderBookingPdf } = require('./pdf');
+const { PROPERTY_PROFILES, getPropertyProfile } = require('./property');
 
 const PORT = process.env.PORT || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+const FRONTEND_ORIGINS = new Set(
+  (process.env.FRONTEND_ORIGINS || FRONTEND_ORIGIN)
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+);
 
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const SECRET_KEY = process.env.SECRET_KEY || 'change-me-in-production';
 const MONGODB_URI =
   process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/amravti_fp';
 
-// Option lists (also used by the frontend via /api/options).
+// Option lists (also used by the frontend via /api/options). propertyName is
+// sent along so the frontend header/title match this deployment's outlet.
 const OPTIONS = {
   functionTypes: ['Social', 'Corporate'],
   venues: ['Hall', 'Lawn'],
@@ -101,6 +104,7 @@ function seriesNo(n) {
 }
 
 const bookingSchema = new mongoose.Schema({
+  property_code: { type: String, required: true, index: true },
   seq: { type: Number, unique: true, index: true }, // public numeric id
   series_no: String,
   reservation_no: String,
@@ -138,7 +142,7 @@ const app = express();
 const corsOrigin = (origin, cb) => {
   if (
     !origin || // same-origin or non-browser (curl, health checks)
-    origin === FRONTEND_ORIGIN ||
+    FRONTEND_ORIGINS.has(origin) ||
     /^http:\/\/localhost:\d+$/.test(origin) ||
     /\.vercel\.app$/.test(origin)
   ) {
@@ -173,8 +177,31 @@ app.use(
   })
 );
 
+// Every frontend identifies its venue. Never trust a property name or email
+// list from the browser; the header only selects one of the server-side
+// profiles defined in property.js.
+app.use('/api', (req, res, next) => {
+  const propertyCode = String(req.get('X-Property-Code') || '').trim().toLowerCase();
+  const propertyProfile = getPropertyProfile(propertyCode);
+  if (!propertyProfile) {
+    return res.status(400).json({ error: 'Missing or invalid venue configuration.' });
+  }
+  req.propertyCode = propertyCode;
+  req.propertyProfile = propertyProfile;
+  next();
+});
+
+function sessionIsAuthorized(req) {
+  const username = String(req.session.adminUsername || '').toLowerCase();
+  return Boolean(
+    username &&
+    req.propertyProfile.allowedUsers[username] &&
+    req.session.propertyCode === req.propertyCode
+  );
+}
+
 function authRequired(req, res, next) {
-  if (!req.session.adminId) {
+  if (!sessionIsAuthorized(req)) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
   next();
@@ -210,16 +237,19 @@ function listenWithRetry(server, port, onListen, retries = 20, delayMs = 250) {
 app.post(
   '/api/login',
   wrap(async (req, res) => {
-    const username = (req.body.username || '').trim();
+    const username = (req.body.username || '').trim().toLowerCase();
     const password = req.body.password || '';
 
-    const admin = await Admin.findOne({ username });
-    if (admin && bcrypt.compareSync(password, admin.password_hash)) {
-      req.session.adminId = String(admin._id);
-      req.session.adminUsername = admin.username;
-      return res.json({ ok: true, username: admin.username });
+    // The active venue's allowlist is authoritative. An account left in the
+    // database from another venue can never use this deployment.
+    const expectedPassword = req.propertyProfile.allowedUsers[username];
+    if (!expectedPassword || password !== expectedPassword) {
+      return res.status(401).json({ error: 'Invalid username or password.' });
     }
-    res.status(401).json({ error: 'Invalid username or password.' });
+
+    req.session.adminUsername = username;
+    req.session.propertyCode = req.propertyCode;
+    return res.json({ ok: true, username });
   })
 );
 
@@ -228,14 +258,14 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => {
-  if (req.session.adminId) {
+  if (sessionIsAuthorized(req)) {
     return res.json({ loggedIn: true, username: req.session.adminUsername });
   }
   res.json({ loggedIn: false });
 });
 
 app.get('/api/options', (req, res) => {
-  res.json(OPTIONS);
+  res.json({ ...OPTIONS, propertyName: req.propertyProfile.displayName });
 });
 
 // --- Bookings API -----------------------------------------------------------
@@ -244,7 +274,7 @@ app.get(
   '/api/bookings',
   authRequired,
   wrap(async (req, res) => {
-    const rows = await Booking.find()
+    const rows = await Booking.find({ property_code: req.propertyCode })
       .sort({ seq: -1 })
       .select(
         'seq series_no reservation_no submitted_by date time function_type venue party_name telephone created_at'
@@ -257,7 +287,10 @@ app.get(
   '/api/bookings/:id',
   authRequired,
   wrap(async (req, res) => {
-    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    const booking = await Booking.findOne({
+      seq: Number(req.params.id),
+      property_code: req.propertyCode,
+    });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     res.json(booking.toJSON());
   })
@@ -312,6 +345,7 @@ app.post(
     const seq = await nextSeq('bookingSeq');
     const booking = await Booking.create({
       ...data,
+      property_code: req.propertyCode,
       other_charges: otherCharges.join(', '),
       submitted_by: req.session.adminUsername,
       seq,
@@ -331,7 +365,10 @@ app.put(
   '/api/bookings/:id',
   authRequired,
   wrap(async (req, res) => {
-    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    const booking = await Booking.findOne({
+      seq: Number(req.params.id),
+      property_code: req.propertyCode,
+    });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     const { data, otherCharges, errors } = parseBookingBody(req.body || {}, {
@@ -353,11 +390,17 @@ app.get(
   '/api/bookings/:id/pdf',
   authRequired,
   wrap(async (req, res) => {
-    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    const booking = await Booking.findOne({
+      seq: Number(req.params.id),
+      property_code: req.propertyCode,
+    });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     const b = booking.toJSON();
-    const pdf = await renderBookingPdf(b);
+    const pdf = await renderBookingPdf({
+      ...b,
+      property_name: req.propertyProfile.displayName,
+    });
     const series = b.series_no || String(b.seq).padStart(3, '0');
     const fileName = `Booking-${series}-${(b.party_name || 'party')
       .replace(/[^\w\-]+/g, '_')
@@ -375,7 +418,10 @@ app.post(
   '/api/bookings/:id/resend',
   authRequired,
   wrap(async (req, res) => {
-    const booking = await Booking.findOne({ seq: Number(req.params.id) });
+    const booking = await Booking.findOne({
+      seq: Number(req.params.id),
+      property_code: req.propertyCode,
+    });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     const result = await sendBookingEmail(booking.toJSON());
@@ -388,28 +434,40 @@ app.post(
 
 // Health check / root.
 app.get('/', (req, res) => {
-  res.json({ service: 'amravti-fp-api', ok: true });
+  res.json({
+    service: 'function-booking-api',
+    venues: Object.keys(PROPERTY_PROFILES),
+    ok: true,
+  });
 });
 
 // --- Startup ----------------------------------------------------------------
 
 async function main() {
+  const profilesWithoutUsers = Object.entries(PROPERTY_PROFILES)
+    .filter(([, profile]) => Object.keys(profile.allowedUsers).length === 0)
+    .map(([code]) => code);
+  if (profilesWithoutUsers.length) {
+    throw new Error(
+      `Missing allowed-user environment configuration for: ${profilesWithoutUsers.join(', ')}`
+    );
+  }
+
   await mongoose.connect(MONGODB_URI);
   console.log('✓ MongoDB connected');
 
-  // Seed the admin account if none exists.
-  if ((await Admin.countDocuments()) === 0) {
-    await Admin.create({
-      username: ADMIN_USERNAME,
-      password_hash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
-    });
-    console.log(`Seeded admin "${ADMIN_USERNAME}" (password: ${ADMIN_PASSWORD})`);
-  }
+  // Existing records predate venue scoping and belong to the original
+  // Amravati deployment. Tag them once so they remain visible only there.
+  await Booking.updateMany(
+    { property_code: { $exists: false } },
+    { $set: { property_code: 'centre_point_amravati' } }
+  );
 
   const server = http.createServer(app);
   listenWithRetry(server, PORT, () => {
     console.log(`✓ Server running → port ${PORT} (http://localhost:${PORT})`);
-    console.log(`  Allowing frontend origin: ${FRONTEND_ORIGIN}`);
+    console.log(`  Venue profiles: ${Object.keys(PROPERTY_PROFILES).join(', ')}`);
+    console.log(`  Allowing frontend origins: ${[...FRONTEND_ORIGINS].join(', ')}`);
   });
 }
 

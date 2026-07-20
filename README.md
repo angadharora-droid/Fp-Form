@@ -1,8 +1,12 @@
-# Amravti FP — Centre Point Amravti Function Booking Form
+# Multi-property Function Booking Form
 
-A full-stack booking app built with **Node.js (Express)** + **MongoDB
-(Mongoose)**, modelled on the form at
-<https://pablotheartcafe.com/centre-point-nagpur/>.
+A multi-venue booking app built with **Node.js (Express)** + **MongoDB
+(Mongoose)**. One shared backend serves separate frontend deployments for
+Centre Point Amravati, Centre Point Nagpur, Centre Point Navi Mumbai, Pablo,
+and Dali.
+
+Each frontend identifies its venue. The backend then applies that venue's name,
+login allowlist, booking-data scope, PDF branding, and email-recipient list.
 
 A **frontend admin login** protects the form: the admin logs in first, and only
 then does the **Function Booking Form (FP form)** open. The login is a separate
@@ -26,9 +30,9 @@ auto-generated series number (`001`, `002`, …) and a timestamp.
 
 ## Project structure
 
-**Two separate servers**: a backend JSON API and a frontend static server. They
-run on different ports; the frontend calls the API cross-origin, and the backend
-enables **CORS with credentials** so the login session cookie still works.
+**One shared backend plus venue-specific frontends**: they run on different
+origins; each frontend calls the API with its venue code, and the backend enables
+**CORS with credentials** so the login session cookie still works.
 
 - **Backend API** → `http://localhost:3001` (Express + Mongoose + MongoDB)
 - **Frontend UI** → `http://localhost:5173` (static server for the SPA)
@@ -37,17 +41,18 @@ Each folder has its own `package.json`, so you `cd` in and run just that server.
 The root `package.json` can also run both at once.
 
 ```
-Amravti fp/
+function-booking/
 ├── backend/
 │   ├── package.json        # cd backend && npm run dev → API only
 │   ├── server.js           # Express JSON API (auth, bookings, Mongoose models, CORS)
-│   ├── .env                # config: PORT, MONGODB_URI, FRONTEND_ORIGIN (gitignored)
+│   ├── .env                # shared API/database/mail config (gitignored)
 │   └── .env.example
 ├── frontend/
 │   ├── package.json        # cd frontend && npm run dev → UI only
 │   ├── server.js           # static server for the UI (port 5173)
 │   ├── index.html          # SPA shell
 │   ├── app.js              # UI + API_BASE pointing at the backend
+│   ├── .env.example        # VITE_API_BASE + venue PROPERTY_CODE
 │   └── style.css
 ├── package.json            # root: installs deps; can run BOTH via concurrently
 ├── free-ports.sh           # frees a given port before start (auto via pre* hooks)
@@ -61,7 +66,7 @@ Amravti fp/
 | POST   | `/api/login`        | —    | Log in (username + password)   |
 | POST   | `/api/logout`       | ✓    | Log out                        |
 | GET    | `/api/me`           | —    | Current login state            |
-| GET    | `/api/options`      | —    | Dropdown option lists          |
+| GET    | `/api/options`      | —    | Property name + option lists   |
 | GET    | `/api/bookings`     | ✓    | List bookings                  |
 | GET    | `/api/bookings/:id` | ✓    | One booking                    |
 | POST   | `/api/bookings`     | ✓    | Create a booking (validated)   |
@@ -95,7 +100,7 @@ without file-watching.
 
 Then open the **frontend** in your browser:
 
-**http://localhost:5173**  ·  log in with `admin` / `admin123`
+**http://localhost:5173**. Use a login allowed by the frontend's venue profile.
 
 > Use `localhost` (not `127.0.0.1`) so the frontend and API are treated as the
 > same site and the login cookie is sent.
@@ -108,18 +113,11 @@ From the project root:
 npm run dev     # runs backend + frontend together via concurrently
 ```
 
-## Default admin login
+## Venue logins
 
-| Field    | Value      |
-|----------|------------|
-| Username | `admin`    |
-| Password | `admin123` |
-
-Override before the first run:
-
-```bash
-ADMIN_USERNAME=youradmin ADMIN_PASSWORD=yourpass npm start
-```
+Venue profiles use the fixed user allowlists in `backend/property.js`.
+The login endpoint and every protected request verify that the username belongs
+to the active venue, so an account or session from another venue is rejected.
 
 ## How it works
 
@@ -138,17 +136,45 @@ Config is loaded from `backend/.env` via `dotenv`. Copy the example and edit:
 cp backend/.env.example backend/.env
 ```
 
-| Variable         | Default                                   | Purpose                        |
-|------------------|-------------------------------------------|--------------------------------|
-| `PORT`           | `3001`                                    | Backend API port               |
-| `FRONTEND_ORIGIN`| `http://localhost:5173`                   | Allowed CORS origin (frontend) |
-| `SECRET_KEY`     | `change-me-in-production`                  | Session signing secret         |
-| `ADMIN_USERNAME` | `admin`                                   | Seeded admin (first run)       |
-| `ADMIN_PASSWORD` | `admin123`                                | Seeded admin password          |
-| `MONGODB_URI`    | `mongodb://127.0.0.1:27017/amravti_fp`    | Local MongoDB connection       |
-| `MONGODB_DB`     | `amravti_fp`                              | MongoDB database name          |
+| Variable           | Default                                | Purpose                          |
+|--------------------|----------------------------------------|----------------------------------|
+| `PORT`             | `3001`                                 | Shared backend API port          |
+| `FRONTEND_ORIGINS` | `http://localhost:5173`                | Comma-separated frontend origins |
+| `SECRET_KEY`       | `change-me-in-production`              | Session signing secret           |
+| `MONGODB_URI`      | `mongodb://127.0.0.1:27017/amravti_fp` | Shared MongoDB connection        |
+| `SMTP_HOST`        | —                                      | Shared SMTP server               |
+| `SMTP_PORT`        | `587`                                  | SMTP port                        |
+| `SMTP_SECURE`      | `false`                                | Implicit TLS (normally port 465) |
+| `SMTP_USER`        | —                                      | SMTP username                    |
+| `SMTP_PASS`        | —                                      | SMTP password                    |
+| `MAIL_FROM`        | SMTP user                              | Sender name/address              |
+
+The shared backend also requires five JSON environment variables containing
+the private venue credentials: `AMRAVATI_ALLOWED_USERS`,
+`NAGPUR_ALLOWED_USERS`, `DALI_ALLOWED_USERS`,
+`NAVI_MUMBAI_ALLOWED_USERS`, and `PABLO_ALLOWED_USERS`. Keep their real values
+in the hosting dashboard and local ignored `.env`; never commit them.
 
 `.env` is gitignored; `.env.example` is committed as a template.
+
+### Shared backend and venue frontends
+
+The backend is deployed once. Its environment does not contain a
+`PROPERTY_CODE`; instead, each frontend build supplies one:
+
+```dotenv
+VITE_API_BASE=https://shared-booking-api.example.com
+VITE_PROPERTY_CODE=pablo
+```
+
+The built-in `PROPERTY_CODE` values are `centre_point_amravati`,
+`centre_point_nagpur`, `dali`, `centre_point_navi_mumbai`, and `pablo`. Each
+selects a fixed username/password allowlist and email-recipient allowlist from
+`backend/property.js`.
+The backend uses the code to select the fixed users and recipients. All booking
+queries include the venue code, so users cannot view or edit another venue's
+records. The frontend gets the display name from `/api/options`, so its title,
+header and footer update automatically.
 
 ## MongoDB (local)
 
@@ -169,15 +195,14 @@ mongosh amravti_fp --eval 'db.bookings.find().pretty()'
 ## Notes
 
 - **Two ports**: backend API on **3001**, frontend UI on **5173**. Change the
-  API port with `PORT` in `backend/.env` (also update `FRONTEND_ORIGIN` and the
-  `API_BASE` constant in `frontend/app.js` if you change ports). The frontend
-  port can be set with `FRONTEND_PORT`.
-- CORS: the backend only accepts credentialed requests from `FRONTEND_ORIGIN`.
+  API port with `PORT` in `backend/.env` and update `VITE_API_BASE` if needed.
+  The frontend port can be set with `FRONTEND_PORT`.
+- CORS: the backend only accepts credentialed requests from
+  `FRONTEND_ORIGINS` (plus local development and Vercel preview origins).
 - **No more `EADDRINUSE`**: `npm start` / `npm run dev` auto-run `free-ports.sh`
   first (via `prestart` / `predev`), which kills any leftover process on 3001 or
   5173. Run it manually anytime with `npm run free-ports`.
-- The default admin is created automatically on first run if the `admins`
-  collection is empty.
+- Venue logins are checked against the selected server-side profile.
 - Bookings use a numeric `seq` as their public id (URL `/booking/1`), plus a
   zero-padded `series_no` (`001`).
-- Set `SECRET_KEY` and change the admin password before deploying to production.
+- Set a strong `SECRET_KEY` and mail credentials on the production backend.

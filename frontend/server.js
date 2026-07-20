@@ -1,5 +1,5 @@
 /**
- * Amravti FP — Frontend static server.
+ * Function Booking — Frontend static server.
  *
  * Serves the UI (index.html, app.js, style.css) as a standalone server,
  * separate from the backend API. The UI calls the backend API cross-origin
@@ -45,5 +45,5 @@ function listenWithRetry(server, port, onListen, retries = 20, delayMs = 250) {
 
 const server = http.createServer(app);
 listenWithRetry(server, PORT, () => {
-  console.log(`Amravti FP frontend running at http://localhost:${PORT}`);
+  console.log(`Function Booking frontend running at http://localhost:${PORT}`);
 });

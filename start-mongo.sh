@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start a local MongoDB instance for the Amravti FP project.
+# Start a local MongoDB instance for the Function Booking project.
 # Data is stored in ./.mongodb-data and served on 127.0.0.1:27017.
 set -e
 

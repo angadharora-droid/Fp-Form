@@ -11,6 +11,7 @@
  */
 
 const PDFDocument = require('pdfkit');
+const { PROPERTY_NAME } = require('./property');
 
 // RIGHT column → section → list of [label, fieldKey] rows. Menu is intentionally
 // NOT here: it is rendered on its own in the left column.
@@ -74,7 +75,7 @@ function renderBookingPdf(b) {
 
     // --- Header (full width) -------------------------------------------------
     doc.fillColor('#111').font('Helvetica-Bold').fontSize(18)
-      .text('Centre Point Amravti', left, doc.page.margins.top);
+      .text(b.property_name || PROPERTY_NAME, left, doc.page.margins.top);
     doc.font('Helvetica').fontSize(10).fillColor('#333')
       .text('Function Booking Form');
 

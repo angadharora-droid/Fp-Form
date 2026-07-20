@@ -1,5 +1,6 @@
 /**
- * Email delivery for booking PDFs, via the cpgh.in SMTP mail server.
+ * Email delivery for booking PDFs via the SMTP server configured for this
+ * deployment.
  *
  * All connection details come from backend/.env (see .env.example):
  *   SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS,
@@ -13,16 +14,25 @@ const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 const net = require('net');
 const { renderBookingPdf } = require('./pdf');
+const { PROPERTY_NAME, getPropertyProfile } = require('./property');
 
-const RECIPIENTS = (process.env.MAIL_RECIPIENTS || '')
+const ENV_RECIPIENTS = (process.env.MAIL_RECIPIENTS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 
+function mailContext(propertyCode) {
+  const profile = getPropertyProfile(propertyCode);
+  return {
+    propertyName: profile ? profile.displayName : PROPERTY_NAME,
+    recipients: profile ? [...profile.notifyEmails] : [...ENV_RECIPIENTS],
+  };
+}
+
 let transporter = null;
 
-function isConfigured() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && RECIPIENTS.length);
+function isConfigured(recipients = ENV_RECIPIENTS) {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && recipients.length);
 }
 
 async function getTransporter() {
@@ -67,40 +77,47 @@ async function getTransporter() {
  */
 async function sendBookingEmail(booking) {
   const series = booking.series_no || String(booking.id ?? booking.seq ?? '');
-  if (!isConfigured()) {
+  const { propertyName, recipients } = mailContext(booking.property_code);
+  if (!isConfigured(recipients)) {
     console.warn(
       `[mail] SMTP not configured — skipped emailing booking ${series}. ` +
-        'Set SMTP_HOST/SMTP_USER/SMTP_PASS and MAIL_RECIPIENTS in backend/.env.'
+        'Set SMTP_HOST/SMTP_USER/SMTP_PASS and configure recipients for this venue.'
     );
     return { sent: false, reason: 'not-configured' };
   }
 
   try {
-    const pdf = await renderBookingPdf(booking);
+    const pdf = await renderBookingPdf({ ...booking, property_name: propertyName });
     const fileName = `Booking-${series}-${(booking.party_name || 'party')
       .replace(/[^\w\-]+/g, '_')
       .slice(0, 40)}.pdf`;
+    const subject = [
+      propertyName,
+      `Function Booking ${series}`,
+      booking.party_name,
+      booking.date ? `(${booking.date})` : null,
+    ].filter(Boolean).join(' — ');
 
     const info = await (await getTransporter()).sendMail({
       from: process.env.MAIL_FROM || process.env.SMTP_USER,
-      to: RECIPIENTS,
-      subject: `Function Booking ${series} — ${booking.party_name || ''} (${booking.date || ''})`.trim(),
-      text: bookingSummaryText(booking, series),
+      to: recipients,
+      subject,
+      text: bookingSummaryText(booking, series, propertyName),
       attachments: [{ filename: fileName, content: pdf, contentType: 'application/pdf' }],
     });
 
-    console.log(`[mail] Booking ${series} emailed to ${RECIPIENTS.length} recipients (id: ${info.messageId})`);
-    return { sent: true, messageId: info.messageId, recipients: RECIPIENTS.length };
+    console.log(`[mail] Booking ${series} emailed to ${recipients.length} recipients (id: ${info.messageId})`);
+    return { sent: true, messageId: info.messageId, recipients: recipients.length };
   } catch (err) {
     console.error(`[mail] Failed to email booking ${series}: ${err.message}`);
     return { sent: false, reason: err.message };
   }
 }
 
-function bookingSummaryText(b, series) {
+function bookingSummaryText(b, series, propertyName) {
   const line = (label, v) => (v ? `${label}: ${v}` : null);
   return [
-    `A new function booking has been recorded at Centre Point Amravti.`,
+    `A new function booking has been recorded at ${propertyName}.`,
     ``,
     line('Booking No', series),
     line('Reservation No', b.reservation_no),
@@ -122,4 +139,4 @@ function bookingSummaryText(b, series) {
     .join('\n');
 }
 
-module.exports = { sendBookingEmail, isConfigured, RECIPIENTS };
+module.exports = { sendBookingEmail, isConfigured, mailContext };

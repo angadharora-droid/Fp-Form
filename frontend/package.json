@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Amravti FP frontend UI — run from this folder (Vite)",
+  "description": "Function booking frontend UI — run from this folder (Vite)",
   "scripts": {
     "predev": "bash ../free-ports.sh 5173",
     "dev": "vite",

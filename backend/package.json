@@ -2,7 +2,7 @@
   "name": "amravti-fp-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Amravti FP backend API — run from this folder",
+  "description": "Function booking backend API — run from this folder",
   "scripts": {
     "predev": "bash ../free-ports.sh 3001",
     "start": "node server.js",

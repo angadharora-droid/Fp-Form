@@ -1,10 +1,11 @@
-/* Amravti FP — frontend SPA. Talks to the backend JSON API (separate origin). */
+/* Function Booking frontend SPA. Talks to the backend JSON API. */
 
 // Backend API base URL.
 // In production (Vercel) set VITE_API_BASE to the deployed backend URL
 // (e.g. https://fp-form-backend.onrender.com). In local dev it falls back
 // to localhost:3001 to stay same-site with the Vite dev server.
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+const PROPERTY_CODE = import.meta.env.VITE_PROPERTY_CODE || 'centre_point_amravati';
 
 const state = { me: { loggedIn: false }, options: null };
 
@@ -21,9 +22,13 @@ function esc(v) {
 
 async function api(path, opts = {}) {
   const res = await fetch(API_BASE + '/api' + path, {
-    headers: { 'Content-Type': 'application/json' },
     credentials: 'include', // send/receive the session cookie cross-origin
     ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Property-Code': PROPERTY_CODE,
+      ...(opts.headers || {}),
+    },
   });
   let data = null;
   try { data = await res.json(); } catch (e) { /* no body */ }
@@ -533,6 +538,7 @@ async function printBooking(b) {
   try {
     const res = await fetch(API_BASE + '/api/bookings/' + b.id + '/pdf', {
       credentials: 'include',
+      headers: { 'X-Property-Code': PROPERTY_CODE },
     });
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
@@ -585,6 +591,15 @@ async function route() {
 
 // --- Init -------------------------------------------------------------------
 
+// The backend resolves this frontend's PROPERTY_CODE to a trusted venue name.
+// Replace the generic index.html branding once /api/options has answered.
+function applyBranding(name) {
+  const propertyName = name || 'Function Booking';
+  document.title = name ? `${propertyName} — Function Booking` : propertyName;
+  document.getElementById('brand').textContent = propertyName;
+  document.getElementById('footer-brand').textContent = `© ${propertyName}`;
+}
+
 async function init() {
   const [me, options] = await Promise.all([
     api('/me').then((r) => r.data),
@@ -592,6 +607,7 @@ async function init() {
   ]);
   state.me = me;
   state.options = options;
+  applyBranding(options.propertyName);
   renderNav();
   window.addEventListener('hashchange', route);
   route();

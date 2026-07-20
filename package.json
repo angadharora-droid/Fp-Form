@@ -1,7 +1,7 @@
 {
   "name": "amravti-fp",
   "version": "1.0.0",
-  "description": "Centre Point Amravti function booking app (Express + MongoDB/Mongoose)",
+  "description": "Multi-property function booking app (Express + MongoDB/Mongoose)",
   "type": "commonjs",
   "main": "backend/server.js",
   "scripts": {
