@@ -74,8 +74,25 @@ function renderNav() {
       </div>
       <div class="nav-right">
         <span class="nav-user">${esc(state.me.username)}</span>
+        <a href="#" id="changeVenue" class="logout-link">Change Venue</a>
         <a href="#" id="logout" class="logout-link">Logout</a>
       </div>`;
+    document.getElementById('changeVenue').onclick = async (e) => {
+      e.preventDefault();
+      // Logout using the current venue header before clearing the selection.
+      await api('/logout', { method: 'POST' });
+      state.me = { loggedIn: false };
+      state.options = null;
+      propertyCode = '';
+      try {
+        localStorage.removeItem('fp_property_code');
+        localStorage.removeItem('fp_login');
+      } catch (err) { /* ignore storage errors */ }
+      applyBranding();
+      renderNav();
+      if (location.hash === '#/login') route();
+      else location.hash = '#/login';
+    };
     document.getElementById('logout').onclick = async (e) => {
       e.preventDefault();
       await api('/logout', { method: 'POST' });
