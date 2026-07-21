@@ -58,6 +58,10 @@ const OPTIONS = {
   otherCharges: ['Alcohol', 'DJ', 'AV', 'Other Charges'],
 };
 
+const PROPERTY_VENUES = {
+  pablo: ['Indoor', 'Outdoor'],
+};
+
 const FIELDS = [
   'reservation_no',
   'date', 'time', 'function_type', 'venue', 'mg', 'expected_pax',
@@ -268,7 +272,11 @@ app.get('/api/me', (req, res) => {
 });
 
 app.get('/api/options', (req, res) => {
-  res.json({ ...OPTIONS, propertyName: req.propertyProfile.displayName });
+  res.json({
+    ...OPTIONS,
+    venues: PROPERTY_VENUES[req.propertyCode] || OPTIONS.venues,
+    propertyName: req.propertyProfile.displayName,
+  });
 });
 
 // --- Bookings API -----------------------------------------------------------
