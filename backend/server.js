@@ -186,6 +186,9 @@ app.use('/api', (req, res, next) => {
   if (!propertyProfile) {
     return res.status(400).json({ error: 'Missing or invalid venue configuration.' });
   }
+  if (Object.keys(propertyProfile.allowedUsers).length === 0) {
+    return res.status(503).json({ error: 'This venue is not configured on the server.' });
+  }
   req.propertyCode = propertyCode;
   req.propertyProfile = propertyProfile;
   next();
@@ -448,8 +451,8 @@ async function main() {
     .filter(([, profile]) => Object.keys(profile.allowedUsers).length === 0)
     .map(([code]) => code);
   if (profilesWithoutUsers.length) {
-    throw new Error(
-      `Missing allowed-user environment configuration for: ${profilesWithoutUsers.join(', ')}`
+    console.warn(
+      `Venue profiles disabled because allowed users are not configured: ${profilesWithoutUsers.join(', ')}`
     );
   }
 
