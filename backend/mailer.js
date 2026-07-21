@@ -35,6 +35,15 @@ function isConfigured(recipients = ENV_RECIPIENTS) {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && recipients.length);
 }
 
+function senderForProperty(propertyName) {
+  const configuredSender = String(process.env.MAIL_FROM || process.env.SMTP_USER || '').trim();
+  const bracketedAddress = configuredSender.match(/<([^<>]+)>/);
+  return {
+    name: propertyName,
+    address: (bracketedAddress ? bracketedAddress[1] : configuredSender).trim(),
+  };
+}
+
 async function getTransporter() {
   if (transporter) return transporter;
 
@@ -99,7 +108,7 @@ async function sendBookingEmail(booking) {
     ].filter(Boolean).join(' — ');
 
     const info = await (await getTransporter()).sendMail({
-      from: process.env.MAIL_FROM || process.env.SMTP_USER,
+      from: senderForProperty(propertyName),
       to: recipients,
       subject,
       text: bookingSummaryText(booking, series, propertyName),
