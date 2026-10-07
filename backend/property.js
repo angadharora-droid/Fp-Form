@@ -85,6 +85,7 @@ const NAVI_MUMBAI_NOTIFY_EMAILS = Object.freeze([
 const PABLO_ALLOWED_USERS = allowedUsersFromEnv('PABLO_ALLOWED_USERS');
 const PABLO_NOTIFY_EMAILS = Object.freeze([
   'rm.pablo@cpgh.in',
+  'natasha.arora@cpgh.in',
   'chef.ufo@cpgh.in',
   'accounts.ufo@cpgh.in',
   'fo.units1@cpgh.in',
